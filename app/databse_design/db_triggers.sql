@@ -122,3 +122,15 @@ CREATE TRIGGER trg_update_lead_sources
 BEFORE UPDATE ON lead_sources
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at_column();
+
+
+-- Trigger to update `updated_at` on leads table
+CREATE TRIGGER trg_update_leads
+BEFORE UPDATE ON leads
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+-- follow_up contraint --
+ALTER TABLE follow_up_tasks
+ADD CONSTRAINT uq_lead_due UNIQUE (lead_id, due_date);
+

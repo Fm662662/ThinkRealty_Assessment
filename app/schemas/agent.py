@@ -7,7 +7,7 @@ from datetime import datetime
 class AgentDashboardParams(BaseModel):
     date_range: Literal["7d", "30d", "90d", "custom"] = "30d"
     status_filter: Literal["all", "active", "converted", "lost"] = "all"
-    source_filter: Literal["all", "bayut", "propertyFinder", "dubizzle", "website"] = "all"
+    source_filter: Literal["all", "bayut", "propertyFinder", "dubizzle", "website", "walk_in", "referral"] = "all"
     # used only when date_range == "custom"
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None

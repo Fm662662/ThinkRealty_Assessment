@@ -18,6 +18,8 @@ class FollowUpTask(Base):
     priority = Column(String(10), default="medium")
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)  # ✅ keep in sync
+    completed_at = Column(DateTime, nullable=True)  # ✅ matches schema
 
     __table_args__ = (
         CheckConstraint(

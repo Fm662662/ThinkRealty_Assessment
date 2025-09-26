@@ -6,6 +6,41 @@ import random, itertools
 
 
 class LeadAssignmentManager:
+    """
+        Service class responsible for assigning and reassigning leads to agents
+        based on workload, specialization, language preference, and performance metrics.
+
+        Responsibilities:
+        1. Lead Assignment (`assign_lead`):
+        - Ensures agents do not exceed 50 active leads.
+        - Prefers agents with matching property type and preferred areas.
+        - Matches language preference if specified.
+        - Uses round-robin with weighted distribution (weights derived from
+            agent performance metrics, e.g., conversion rate).
+
+        2. Lead Reassignment (`reassign_lead`):
+        - Marks previous assignment as inactive.
+        - Supports manual reassignment (to a specific agent).
+        - Supports automatic reassignment (best available agent).
+        - Records reassignment reason for auditing.
+
+        3. Workload Tracking (`get_agent_workload`):
+        - Counts active leads per agent (excluding converted/lost leads and
+            reassigned entries).
+        - Used to enforce workload limits.
+
+        4. Best Agent Selection (`find_best_agent`):
+        - Applies filtering (specialization, preferred areas, language).
+        - Considers agent performance metrics for weighting.
+        - Maintains an in-memory round-robin cycle for fair distribution.
+
+        Usage:
+        - Called during lead capture (initial assignment).
+        - Invoked when reassigning leads due to inactivity, workload balancing,
+        or supervisor intervention.
+        - Ensures fair and performance-driven distribution of leads across agents.
+    """
+
     def __init__(self, db: AsyncSession):
         self.db = db
         self._rr_cycle = None  # in-memory round robin cycle

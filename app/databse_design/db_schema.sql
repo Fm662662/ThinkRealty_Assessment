@@ -31,7 +31,6 @@ WHERE status = 'converted';
 ---------------------------------------------------------------------------------------------------------------------
 
 
-
 --AGENTS
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
@@ -39,18 +38,19 @@ CREATE TABLE agents (
     agent_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     full_name VARCHAR(200) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
-    phone VARCHAR(20) NOT NULL,
-    specialization VARCHAR(100), -- e.g. apartment, villa, commercial
-    preferred_areas TEXT[],       -- array of areas like Marina, JBR
+    phone VARCHAR(20) UNIQUE NOT NULL,
+    specialization VARCHAR(100),
+    preferred_areas TEXT[],
     is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    language VARCHAR(50) DEFAULT 'english',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Quick lookup by specialization and areas
+-- Indexes for fast lookup
 CREATE INDEX idx_agents_specialization ON agents (specialization);
 CREATE INDEX idx_agents_active ON agents (is_active);
 
-ALTER TABLE agents ADD COLUMN language VARCHAR(50);
 UPDATE agents
 SET language = CASE
     WHEN random() < 0.5 THEN 'arabic'
@@ -106,8 +106,8 @@ CREATE INDEX idx_activity_time ON lead_activities (created_at DESC);
 --LEAD_SCORING_RULES
 CREATE TABLE lead_scoring_rules (
     rule_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    rule_name VARCHAR(100) NOT NULL,         -- e.g. "High Budget Bonus"
-    criteria JSONB NOT NULL,                 -- flexible rule definition (JSON-based)
+    rule_name VARCHAR(100) NOT NULL, 
+    criteria JSONB NOT NULL,                 -- flexible rule definition
     score_delta INT NOT NULL,                -- + or - points
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

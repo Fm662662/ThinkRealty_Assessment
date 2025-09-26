@@ -5,6 +5,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta
 
 class LeadScoringEngine:
+    """
+        Engine for calculating and updating lead scores based on predefined
+        business rules, profile data, source details, and activity history.
+
+        Responsibilities:
+        1. Initial Scoring (`calculate_lead_score`):
+        - Evaluates new leads using factors such as:
+            * Budget range (higher budgets score higher).
+            * Source quality (Bayut, PropertyFinder, Website, etc.).
+            * Nationality (UAE/GCC bonuses).
+            * Property type preference (villa/apartment/commercial).
+            * Response time to initial contact.
+            * Referral bonus.
+        - Produces a normalized score clamped between 0 and 100.
+
+        2. Dynamic Updates (`update_lead_score`):
+        - Adjusts existing lead scores after activities, based on:
+            * Interaction outcomes (positive/negative).
+            * Key activity types (viewing, offer made).
+            * Inactivity penalties (no activity >7 days).
+        - Persists the recalculated score in the database.
+
+        Usage:
+        - Called when capturing a new lead (initial score).
+        - Invoked on lead updates (activities, follow-ups, or status changes).
+        - Helps prioritize leads for agents by ensuring consistent scoring logic.
+    """
 
     async def calculate_lead_score(
         self,
