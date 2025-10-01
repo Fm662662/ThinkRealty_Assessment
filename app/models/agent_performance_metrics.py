@@ -1,4 +1,4 @@
-# models/agent_performance_metric.py
+# models/agent_performance_metrics.py
 from sqlalchemy import Column, Date, DateTime, Integer, Numeric, Interval, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -21,6 +21,8 @@ class AgentPerformanceMetric(Base):
     average_deal_size = Column(Numeric(15,2), nullable=True)
     response_time_rank = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 
     __table_args__ = (
         UniqueConstraint('agent_id', 'date', name='unique_agent_date'),

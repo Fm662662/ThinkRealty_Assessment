@@ -16,6 +16,9 @@ class LeadConversionHistory(Base):
     changed_at = Column(DateTime, default=datetime.utcnow)
     changed_by = Column(UUID(as_uuid=True), nullable=True)  # agent_id or supervisor
     notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 
     # Relationships
     lead = relationship("Lead", back_populates="conversion_history")

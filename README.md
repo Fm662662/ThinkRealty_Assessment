@@ -39,17 +39,18 @@ TR (root)/
 │ ├── db/           # Database session, base_class, redis client
 │ ├── schemas/      # Pydantic schemas
 │ ├── models/       # SQLAlchemy ORM models
-│ └── main.py       # FastAPI entry point
-│
-│── databse_design/
-│ ├── db_schema.sql     # Create all tables
-│ ├── db_triggers.sql   # Enforce business rules
-│ └── db_seed.sql       # Insert sample data
+│ ├── crud/         # All the CRUD files (Create, Read, Update, Delete)
+│ ├── main.py       # FastAPI entry point
+│ └── databse_design/
+│     ├── db_schema.sql     # Create all tables
+│     ├── db_triggers.sql   # Enforce business rules
+│     └── db_seed.sql       # Insert sample data
 │
 │── requirements.txt    # Python dependencies
 │── Dockerfile          # Docker build instructions
 │── docker-compose.yml  # Multi-container setup (app + postgres + redis)
 │── README.md           # Project documentation
+│── lead_management_api_documentation.md     # Instructions for Endpoints 
 │──queries/
   ├── 4.1_query.sql     # All queries in queries folder 
   ├── 4.2_query.sql

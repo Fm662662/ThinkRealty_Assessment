@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 --LEADS
 CREATE TABLE leads (
     lead_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -89,8 +91,9 @@ CREATE TABLE lead_activities (
         ('call','email','whatsapp','viewing','meeting','offer_made')),
     notes TEXT,
     outcome VARCHAR(20) CHECK (outcome IN ('positive','negative','neutral')),
-    created_at TIMESTAMP WITH DEFAULT CURRENT_TIMESTAMP,
     next_follow_up TIMESTAMP ,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT fk_lead FOREIGN KEY (lead_id) REFERENCES leads (lead_id) ON DELETE CASCADE,
     CONSTRAINT fk_agent FOREIGN KEY (agent_id) REFERENCES agents (agent_id) ON DELETE CASCADE
@@ -129,6 +132,7 @@ CREATE TABLE follow_up_tasks (
     priority VARCHAR(10) DEFAULT 'medium' CHECK (priority IN ('high','medium','low')),
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT fk_lead FOREIGN KEY (lead_id) REFERENCES leads (lead_id) ON DELETE CASCADE,
     CONSTRAINT fk_agent FOREIGN KEY (agent_id) REFERENCES agents (agent_id) ON DELETE CASCADE
@@ -152,8 +156,6 @@ WHERE task_id IN (
     LIMIT 15
 );
 
-ALTER TABLE follow_up_tasks
-ADD COLUMN updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW();
 -------------------------------------------------------------------------------------------------------------
 
 
@@ -164,6 +166,9 @@ CREATE TABLE lead_property_interests (
     property_id UUID NOT NULL,   -- Assume properties exist in another table or external system
     interest_level VARCHAR(20) NOT NULL CHECK (interest_level IN ('high','medium','low')),
     noted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
     
     CONSTRAINT fk_lead FOREIGN KEY (lead_id) REFERENCES leads (lead_id) ON DELETE CASCADE,
     CONSTRAINT unique_lead_property UNIQUE (lead_id, property_id)
@@ -214,6 +219,7 @@ CREATE TABLE agent_performance_metrics (
     response_time_rank INT,           -- relative rank among agents
 
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT fk_agent FOREIGN KEY (agent_id) REFERENCES agents (agent_id) ON DELETE CASCADE,
     CONSTRAINT unique_agent_date UNIQUE (agent_id, date) -- prevent duplicates per period
@@ -234,6 +240,9 @@ CREATE TABLE lead_conversion_history (
     changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     changed_by UUID, -- optional: could be agent_id or supervisor id
     notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
 
     CONSTRAINT fk_lead FOREIGN KEY (lead_id) REFERENCES leads (lead_id) ON DELETE CASCADE
 );

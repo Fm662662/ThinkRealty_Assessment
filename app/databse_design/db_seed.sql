@@ -15,6 +15,7 @@ SELECT
   (ARRAY['new','contacted','qualified','viewing_scheduled','negotiation','converted','lost'])[floor(random()*7)+1],
   (floor(random()*101))::INT
 FROM generate_series(1, 105) s(i);
+----------------------------------------------------------------------------------------------------------------------------------
 
 
 --Insertion_into_agents_table
@@ -30,7 +31,7 @@ VALUES
 ('Mohammed Rashid', 'mohammed.rashid@thinkrealty.ae', '+971501234574', 'commercial', '{"Deira","Bur Dubai"}'),
 ('Emily Carter', 'emily.carter@thinkrealty.ae', '+971501234575', 'townhouse', '{"DAMAC Hills","Arabian Ranches"}'),
 ('Hassan Ali', 'hassan.ali@thinkrealty.ae', '+971501234576', 'apartment', '{"Sports City","Discovery Gardens"}');
-
+----------------------------------------------------------------------------------------------------------------------------------
 
 --Insertion_into_lead_activities_table
 INSERT INTO lead_activities (lead_id, agent_id, activity_type, notes, outcome, next_follow_up)
@@ -48,7 +49,7 @@ CROSS JOIN LATERAL (
     ORDER BY random()
     LIMIT 1
 ) AS sub;
-
+-------------------------------------------------------------------------------------------------------------------------------
 
 --Insertion_into_lead_assignments_table
 -- -- Step 1: Get eligible leads (status not converted/lost) and number them
@@ -88,7 +89,7 @@ assignments AS (
 INSERT INTO lead_assignments (lead_id, agent_id, reason)
 SELECT lead_id, agent_id, reason
 FROM assignments;
-
+-----------------------------------------------------------------------------------------------------------------------------
 
 
 --Insertion_into_lead_activites
@@ -107,9 +108,10 @@ JOIN LATERAL (
     ORDER BY random()
     LIMIT 1
 ) AS sub ON TRUE;
+---------------------------------------------------------------------------------------------------------------------------------
 
 
---Insertion_into_lead_scoring_rules_table
+--Insertion_into_lead_scoring_rules
 INSERT INTO lead_scoring_rules (rule_name, criteria, score_delta)
 VALUES
 -- Budget rules
@@ -135,9 +137,9 @@ VALUES
 
 -- Referral bonus
 ('Referral Bonus', '{"field":"referrer_agent_id","operator":"NOT_NULL"}', 5);
+-----------------------------------------------------------------------------------------------------------------------------------
 
-
---Insert_into_follow_up_tasks_table
+--Insert_into_follow_up_tasks
 INSERT INTO follow_up_tasks (lead_id, agent_id, task_type, due_date, priority, notes)
 SELECT sub.lead_id, sub.agent_id,
        (ARRAY['call','email','whatsapp','viewing','meeting'])[floor(random()*5)+1],
@@ -151,7 +153,9 @@ CROSS JOIN LATERAL (
     JOIN agents a ON random() < 0.1
     ORDER BY random()
     LIMIT 1
-) AS sub;
+) AS sub
+ON CONFLICT (lead_id, due_date) DO NOTHING;
+-------------------------------------------------------------------------------------------------------------------------
 
 
 --Insertion_into_lead_property_interests_table

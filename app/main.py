@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from app.routers import lead, agent
 
 app = FastAPI(
-    title="ThinkRealty Backend API",
+    title="ThinkRealty Lead Management",
     version="1.0.0"
 )
 

@@ -13,9 +13,10 @@ class Agent(Base):
     full_name = Column(String(200), nullable=False)
     email = Column(String(255), unique=True, nullable=False)
     phone = Column(String(20), nullable=False)
-    specialization = Column(String(100), nullable=True)  # e.g., apartment, villa, commercial
+    specialization = Column(String(100), nullable=True)
     preferred_areas = Column(ARRAY(String), nullable=True)
     is_active = Column(Boolean, default=True)
+    language = Column(String(50), default='english', nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -1,11 +1,11 @@
 from uuid import UUID, uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
+from sqlalchemy import select, and_, func, or_
 from datetime import datetime, timedelta
 import json
 from fastapi import HTTPException
 
-from app.models import Lead, LeadSource, LeadAssignment, FollowUpTask
+from app.models import Lead, LeadSource, LeadAssignment, FollowUpTask, LeadConversionHistory, LeadActivity, LeadPropertyInterest
 from app.schemas.lead import LeadCaptureRequest, LeadCaptureResponse, AssignedAgent
 from app.schemas.lead_update import LeadUpdateRequest, LeadUpdateResponse
 from app.services.lead_scoring import LeadScoringEngine
@@ -58,19 +58,24 @@ class LeadServices:
             if await redis.get(key):
                 raise HTTPException(status_code=400, detail="Duplicate lead detected (cache)")
 
-        # 2. --- Check DB for duplicates ---
-        existing = await db.execute(
-            text("""
-                SELECT 1 FROM leads l
-                JOIN lead_sources ls ON l.lead_id = ls.lead_id
-                WHERE (l.phone = :phone OR (l.email IS NOT NULL AND l.email = :email))
-                AND l.created_at >= NOW() - INTERVAL '24 hours'
-
-            """),
-            {"phone": request.lead_data.phone, "email": request.lead_data.email}
+        # 2. --- Check DB for duplicates (ORM) ---
+        stmt = (
+            select(Lead.lead_id)
+            .join(LeadSource, Lead.lead_id == LeadSource.lead_id)
+            .where(
+                and_(
+                    or_(
+                        Lead.phone == request.lead_data.phone,
+                        and_(Lead.email.isnot(None), Lead.email == request.lead_data.email),
+                    ),
+                    Lead.created_at >= datetime.utcnow() - timedelta(hours=24),
+                )
+            )
         )
-        if existing.first():
+        result = await db.execute(stmt)
+        if result.first():
             raise HTTPException(status_code=400, detail="Duplicate lead detected (DB)")
+
 
         # 3. --- Insert Lead + Source ---
         new_lead = Lead(
@@ -188,91 +193,87 @@ class LeadServices:
 
 
         # 1. --- Fetch Lead ---
-        lead_res = await db.execute(text("SELECT * FROM leads WHERE lead_id = :id"), {"id": str(lead_id)})
-        lead = lead_res.mappings().first()
+        result = await db.execute(select(Lead).where(Lead.lead_id == lead_id))
+        lead = result.scalar_one_or_none()
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
 
         last_activity_ts, next_follow_up_ts = None, None
 
         # 2. --- Status update In lead_conversion_history---
-        if request.status and request.status != lead["status"]:
+        if request.status and request.status != lead.status:
             try:
-                await db.execute(
-                    text("""INSERT INTO lead_conversion_history (lead_id, previous_status, new_status, notes) 
-                            VALUES (:lead_id, :prev, :new, :notes)"""),
-                    {"lead_id": str(lead_id), 
-                    "prev": lead["status"], 
-                    "new": request.status, 
-                    "notes": "Updated via API"}
+                # Add history
+                history = LeadConversionHistory(
+                    lead_id=lead_id,
+                    previous_status=lead.status,
+                    new_status=request.status,
+                    notes="Updated via API",
                 )
+                db.add(history)
 
-                await db.execute(
-                    text("UPDATE leads SET status = :status, updated_at = :ts WHERE lead_id = :id"),
-                    {"status": request.status, 
-                    "ts": datetime.utcnow(), 
-                    "id": str(lead_id)}
-                )
+                # Update lead status
+                lead.status = request.status
+                lead.updated_at = datetime.utcnow()
+
             except Exception as e:
                 raise HTTPException(status_code=400, detail=str(e))
             
-        # 3. ---Insert  Activity if Provided---
+        # 3. --- Insert Activity if Provided ---
         if request.activity:
             act = request.activity
-            result = await db.execute(
-                text("""
-                    INSERT INTO lead_activities (lead_id, agent_id, activity_type, notes, outcome, next_follow_up)
-                    VALUES (:lead_id, (SELECT agent_id FROM lead_assignments WHERE lead_id = :lead_id AND reassigned = FALSE LIMIT 1),
-                            :type, :notes, :outcome, :next_follow_up)
-                    RETURNING created_at, next_follow_up
-                """),
-                {
-                    "lead_id": str(lead_id), 
-                    "type": act.type, 
-                    "notes": act.notes, 
-                    "outcome": act.outcome, 
-                    "next_follow_up": act.next_follow_up
-                }
+            activity = LeadActivity(
+                lead_id=lead_id,
+                agent_id=await LeadAssignmentManager.get_assigned_agent(db, lead_id),  # assumes helper
+                activity_type=act.type,
+                notes=act.notes,
+                outcome=act.outcome,
+                next_follow_up=act.next_follow_up,
             )
-            row = result.mappings().first()
-            last_activity_ts, next_follow_up_ts = row["created_at"], row["next_follow_up"]
+            db.add(activity)
+            await db.flush()  # to get timestamps
+
+            last_activity_ts, next_follow_up_ts = activity.created_at, activity.next_follow_up
 
             if act.next_follow_up:
-                await db.execute(
-                    text("""
-                        INSERT INTO follow_up_tasks (lead_id, agent_id, task_type, due_date, priority, notes)
-                        VALUES (:lead_id,
-                               (SELECT agent_id FROM lead_assignments WHERE lead_id = :lead_id AND reassigned = FALSE LIMIT 1),
-                               :task_type, :due_date, 'high', :notes)
-                    """),
-                    {
-                        "lead_id": str(lead_id), 
-                        "task_type": act.type, 
-                        "due_date": act.next_follow_up, 
-                        "notes": act.notes or "Auto-generated follow-up"
-                    }
+                follow_up = FollowUpTask(
+                    lead_id=lead_id,
+                    agent_id=activity.agent_id,
+                    task_type=act.type,
+                    due_date=act.next_follow_up,
+                    priority="high",
+                    notes=act.notes or "Auto-generated follow-up",
                 )
+                db.add(follow_up)
 
         # 4. --- Update Property interests ---
         updated_interests = []
         if request.property_interests:
             for pi in request.property_interests:
-                await db.execute(
-                    text("""INSERT INTO lead_property_interests (lead_id, property_id, interest_level)
-                            VALUES (:lead_id, :property_id, :level)
-                            ON CONFLICT (lead_id, property_id) DO UPDATE SET interest_level = EXCLUDED.interest_level"""),
-                    {
-                        "lead_id": str(lead_id), 
-                        "property_id": str(pi.property_id), 
-                        "level": pi.interest_level
-                    }
+                result = await db.execute(
+                    select(LeadPropertyInterest).where(
+                        LeadPropertyInterest.lead_id == lead_id,
+                        LeadPropertyInterest.property_id == pi.property_id,
+                    )
                 )
+                interest = result.scalar_one_or_none()
+                if interest:
+                    interest.interest_level = pi.interest_level
+                else:
+                    interest = LeadPropertyInterest(
+                        lead_id=lead_id,
+                        property_id=pi.property_id,
+                        interest_level=pi.interest_level,
+                    )
+                    db.add(interest)
                 updated_interests.append(pi)
 
         # 5. --- Recalculate score using LeadScoringEngine ---
         scoring_engine = LeadScoringEngine()
-        new_score = await scoring_engine.update_lead_score(db, lead_id=lead_id, activity_data=request.activity.dict() if request.activity else {})
-        await db.execute(text("UPDATE leads SET lead_score = :score WHERE lead_id = :id"), {"score": new_score, "id": str(lead_id)})
+        new_score = await scoring_engine.update_lead_score(
+            db, lead_id=lead_id, activity_data=request.activity.dict() if request.activity else {}
+        )
+        lead.lead_score = new_score
 
         # 6. --- Optional reassignment ---
         if new_score > 90:
@@ -289,3 +290,46 @@ class LeadServices:
             next_follow_up=next_follow_up_ts.isoformat() if next_follow_up_ts else None,
             updated_interests=updated_interests or None,
         )
+
+
+    @staticmethod
+    async def get_recent_leads_service(limit: int, db: AsyncSession):
+        # 1. --- Recent Captures ---
+        capture_stmt = (
+            select(Lead)
+            .order_by(Lead.created_at.desc())
+            .limit(limit)
+        )
+        captures_result = await db.execute(capture_stmt)
+        recent_captures = captures_result.scalars().all()
+
+        # 2. --- Recent Updates ---
+        update_stmt = (
+            select(LeadConversionHistory)
+            .order_by(LeadConversionHistory.changed_at.desc())
+            .limit(limit)
+        )
+        updates_result = await db.execute(update_stmt)
+        recent_updates = updates_result.scalars().all()
+
+        return {
+            "recent_captures": [
+                {
+                    "lead_id": str(lead.lead_id),
+                    "status": lead.status,
+                    "created_at": lead.created_at,
+                }
+                for lead in recent_captures
+            ],
+            "recent_updates": [
+                {
+                    "lead_id": str(update.lead_id),
+                    "previous_status": update.previous_status,
+                    "new_status": update.new_status,
+                    "changed_at": update.changed_at,
+                    "changed_by": str(update.changed_by) if update.changed_by else None,
+                }
+                for update in recent_updates
+            ],
+        }
+

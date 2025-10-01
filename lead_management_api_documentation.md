@@ -27,7 +27,7 @@ curl -X POST "http://localhost:8000/api/v1/leads/capture"
     },
     "source_details": {
       "campaign_id": "summer2024",
-      "referrer_agent_id": "6e0b655b-edc1-4229-9d08-4af6e09a4548",
+      "referrer_agent_id": "58b96a3f-db64-4272-a61d-cfe92237ab64",
       "property_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
       "utm_source": "google",
       "utm_medium": "cpc",
@@ -76,14 +76,14 @@ curl -X POST "http://localhost:8000/api/v1/leads/capture"
 **Endpoint:** `PUT /api/v1/leads/{lead_id}/update`  
 
 **lead_id**
-21c677a2-9fe6-4da4-b634-19351d695124
+1e01496d-786c-4c6f-b950-f3e072ed269c
 
 ### Request
 ```bash
 curl -X PUT "http://localhost:8000/api/v1/leads/{lead_id}/update"   
 -H "Content-Type: application/json"   
 -d '{
-    "status": "viewing_scheduled",
+    "status": "qualified",
     "activity": {
       "type": "call",
       "notes": "Discussed property details, client interested.",
@@ -119,13 +119,60 @@ curl -X PUT "http://localhost:8000/api/v1/leads/{lead_id}/update"
 { "detail": "Invalid status transition from contacted to converted" }
 ```
 
+
+---
+## 🔹 3. Get Recent Leads and Updates  
+**Endpoint:** `GET /api/v1/leads/recent`  
+
+### Description
+Fetches the most recent **lead captures** and their **latest update events**.  
+
+### Query Parameters
+| Name   | Type | Default | Description |
+|--------|------|---------|-------------|
+| `limit` | int  | `1`     | Number of recent records to fetch (applied to both captures and updates). |
+
 ---
 
-## 🔹 3. Agent Dashboard  
+### Request Example
+```bash
+curl -X GET "http://localhost:8000/api/v1/leads/recent?limit=3" \
+-H "Content-Type: application/json"
+
+```
+
+### ✅ Success Response
+
+{
+  "recent_captures": [
+    {
+      "lead_id": "d3f8b7a2-1c52-4b1b-9e0a-4b2a7c44e9f1",
+      "status": "new",
+      "created_at": "2025-09-29T10:30:00"
+    }
+  ],
+  "recent_updates": [
+    {
+      "lead_id": "d3f8b7a2-1c52-4b1b-9e0a-4b2a7c44e9f1",
+      "previous_status": "new",
+      "new_status": "contacted",
+      "changed_at": "2025-09-30T12:15:00",
+      "changed_by": "ee1b4f86-183d-4f4b-9ad6-8a032be4fc99"
+    }
+  ]
+}
+
+### ❌ Error Responses
+```json
+{ "detail": "Internal Server Error" }
+```
+
+
+## 🔹 4. Agent Dashboard  
 **Endpoint:** `GET /api/v1/agents/{agent_id}/dashboard`  
 
 **agent_id**
-ee1b4f86-183d-4f4b-9ad6-8a032be4fc99
+9e2149a7-c3f2-4e8f-87e5-a49921a848c8
 
 ### Request
 ```bash

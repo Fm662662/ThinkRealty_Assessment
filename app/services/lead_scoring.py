@@ -1,4 +1,7 @@
 from typing import Dict, Any
+from sqlalchemy import select, update
+from app.models.lead import Lead 
+
 from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -129,16 +132,16 @@ class LeadScoringEngine:
             score_delta -= 10
 
         # fetch current score
-        res = await db.execute(
-            text("SELECT lead_score FROM leads WHERE lead_id = :id"), {"id": str(lead_id)})
-        row = res.mappings().first()
-        current = int(row["lead_score"]) if row and row["lead_score"] is not None else 0
+        res = await db.execute(select(Lead.lead_score).where(Lead.lead_id == lead_id))
+        current = res.scalar_one_or_none() or 0
 
         new_score = max(0, min(100, current + score_delta))
 
+
         await db.execute(
-            text("UPDATE leads SET lead_score = :score, updated_at = now() WHERE lead_id = :id"),
-            {"score": new_score, "id": str(lead_id)}
+            update(Lead)
+            .where(Lead.lead_id == lead_id)
+            .values(lead_score=new_score, updated_at=datetime.utcnow())
         )
         await db.commit()
 

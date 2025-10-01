@@ -1,8 +1,16 @@
 from typing import Dict, Any, Optional
 from uuid import UUID, uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
-import random, itertools
+from sqlalchemy import select, update, func
+
+import itertools
+from datetime import datetime
+
+from app.models.agent import Agent
+from app.models.lead import Lead
+from app.models.agent_performance_metrics import AgentPerformanceMetric
+from app.models.lead_assignment import LeadAssignment
+
 
 
 class LeadAssignmentManager:
@@ -61,24 +69,31 @@ class LeadAssignmentManager:
         """
 
         # 1. Fetch all agents with workload < 50
-        result = await self.db.execute(
-            text("""
-                SELECT a.agent_id, a.full_name, a.phone, a.language, a.specialization
-                FROM agents a
-                WHERE (
-                    SELECT COUNT(*)
-                    FROM lead_assignments la
-                    JOIN leads l ON la.lead_id = l.lead_id
-                    WHERE la.agent_id = a.agent_id
-                    AND l.status NOT IN ('converted','lost')
-                    AND la.reassigned = FALSE
-                ) < 50
-            """)
+        subq = (
+            select(func.count(LeadAssignment.assignment_id))
+            .join(Lead, Lead.lead_id == LeadAssignment.lead_id)
+            .where(
+                LeadAssignment.agent_id == Agent.agent_id,
+                LeadAssignment.reassigned == False,
+                Lead.status.notin_(["converted", "lost"])
+            )
+        ).scalar_subquery()
+
+        stmt = (
+            select(
+                Agent.agent_id,
+                Agent.full_name,
+                Agent.phone,
+                Agent.language,
+                Agent.specialization
+            )
+            .where(subq < 50)
         )
-        agents = result.mappings().all()
+        result = await self.db.execute(stmt)
+        agents = [dict(row._mapping) for row in result]
 
         if not agents:
-            return None  # no agent available
+            return None
 
         # 2. Filter by specialization (property type & preferred areas)
         property_type = lead_data.get("property_type")
@@ -115,7 +130,6 @@ class LeadAssignmentManager:
         }
 
 
-
     async def reassign_lead(
         self,
         lead_id: UUID,
@@ -129,47 +143,52 @@ class LeadAssignmentManager:
         - Insert new assignment record.
         """
 
-        # 1. Mark old assignment as reassigned
+        # --- Step 1: Mark old assignment as reassigned ---
         await self.db.execute(
-            text("""
-                UPDATE lead_assignments
-                SET reassigned = TRUE
-                WHERE lead_id = :lead_id AND reassigned = FALSE
-            """),
-            {"lead_id": str(lead_id)},
+            update(LeadAssignment)
+            .where(LeadAssignment.lead_id == lead_id, LeadAssignment.reassigned == False)
+            .values(reassigned=True)
         )
 
-        # 2. Determine new agent
+
+        # --- Step 2: Determine new agent ---
         if target_agent_id:
-            # Manual reassignment
-            result = await self.db.execute(
-                text("SELECT agent_id, full_name, phone FROM agents WHERE agent_id = :aid"),
-                {"aid": str(target_agent_id)},
+            stmt = (
+                select(Agent.agent_id, Agent.full_name, Agent.phone)
+                .where(Agent.agent_id == target_agent_id)
             )
+            result = await self.db.execute(stmt)
             new_agent = result.mappings().first()
             if not new_agent:
                 raise ValueError(f"Agent {target_agent_id} not found")
         else:
-            # Auto assignment using existing rules
             new_agent = await self.assign_lead(lead_id, lead_data={})
             if not new_agent:
                 raise ValueError("No eligible agent available for reassignment")
 
-        # 3. Insert new assignment
-        await self.db.execute(
-            text("""
-                INSERT INTO lead_assignments (assignment_id, lead_id, agent_id, reason, reassigned)
-                VALUES (:assignment_id, :lead_id, :agent_id, :reason, FALSE)
-            """),
-            {
-                "assignment_id": str(uuid4()),
-                "lead_id": str(lead_id),
-                "agent_id": str(new_agent["agent_id"]),
-                "reason": reason,
-            },
+        # --- Step 3: Insert new assignment ---
+        new_assignment = LeadAssignment(
+            assignment_id=uuid4(),
+            lead_id=lead_id,
+            agent_id=new_agent["agent_id"],
+            reason=reason,
+            reassigned=False,
+            created_at=datetime.utcnow()
         )
+        self.db.add(new_assignment)
 
+        await self.db.commit()
         return new_agent
+
+    async def get_assigned_agent(db, lead_id: str):
+        # fetch the agent currently assigned to this lead
+        stmt = select(LeadAssignment.agent_id).where(
+            LeadAssignment.lead_id == lead_id
+        ).order_by(LeadAssignment.created_at.desc())
+        
+        result = await db.execute(stmt)
+        agent_id = result.scalar_one_or_none()  # latest assignment or None
+        return agent_id
 
 
     async def get_agent_workload(self, agent_id: UUID) -> int:
@@ -177,21 +196,17 @@ class LeadAssignmentManager:
         Count active leads assigned to a given agent.
         Active = not converted/lost AND assignment not reassigned.
         """
-
-        result = await self.db.execute(
-            text("""
-                SELECT COUNT(*)
-                FROM lead_assignments la
-                JOIN leads l ON la.lead_id = l.lead_id
-                WHERE la.agent_id = :agent_id
-                AND la.reassigned = FALSE
-                AND l.status NOT IN ('converted','lost')
-            """),
-            {"agent_id": str(agent_id)},
+        stmt = (
+            select(func.count(LeadAssignment.assignment_id))
+            .join(Lead, Lead.lead_id == LeadAssignment.lead_id)
+            .where(
+                LeadAssignment.agent_id == agent_id,
+                LeadAssignment.reassigned == False,
+                Lead.status.notin_(["converted", "lost"])
+            )
         )
-        count = result.scalar() or 0
-        return count
-
+        result = await self.db.execute(stmt)
+        return result.scalar() or 0
 
     async def find_best_agent(self, lead_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
@@ -202,29 +217,38 @@ class LeadAssignmentManager:
         - Uses round-robin with weighted distribution (based on conversion_rate).
         """
 
-        result = await self.db.execute(
-            text("""
-                SELECT a.agent_id, a.full_name, a.phone, a.language, a.specialization,
-                       COALESCE(m.conversion_rate, 1) AS weight
-                FROM agents a
-                LEFT JOIN LATERAL (
-                    SELECT conversion_rate
-                    FROM agent_performance_metrics m
-                    WHERE m.agent_id = a.agent_id
-                    ORDER BY m.date DESC
-                    LIMIT 1
-                ) m ON TRUE
-                WHERE (
-                    SELECT COUNT(*)
-                    FROM lead_assignments la
-                    JOIN leads l ON la.lead_id = l.lead_id
-                    WHERE la.agent_id = a.agent_id
-                      AND l.status NOT IN ('converted','lost')
-                      AND la.reassigned = FALSE
-                ) < 50
-            """)
+        # Subquery: workload check
+        workload_subq = (
+            select(func.count(LeadAssignment.assignment_id))
+            .join(Lead, Lead.lead_id == LeadAssignment.lead_id)
+            .where(
+                LeadAssignment.agent_id == Agent.agent_id,
+                LeadAssignment.reassigned == False,
+                Lead.status.notin_(["converted", "lost"])
+            )
+        ).scalar_subquery()
+
+        # Subquery: latest conversion rate
+        latest_performance_subq = (
+            select(AgentPerformanceMetric.conversion_rate)
+            .where(AgentPerformanceMetric.agent_id == Agent.agent_id)
+            .order_by(AgentPerformanceMetric.date.desc())
+            .limit(1)
+        ).scalar_subquery()
+
+        stmt = (
+            select(
+                Agent.agent_id,
+                Agent.full_name,
+                Agent.phone,
+                Agent.language,
+                Agent.specialization,
+                func.coalesce(latest_performance_subq, 1).label("weight")
+            )
+            .where(workload_subq < 50)
         )
-        agents = result.mappings().all()
+        result = await self.db.execute(stmt)
+        agents = [dict(row._mapping) for row in result]
 
         if not agents:
             return None
